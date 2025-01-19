@@ -1,50 +1,40 @@
-# src/data_ingestion.py
 
+import requests
 import os
-import pdfplumber
-import docx2txt
 
-def read_pdf(file_path: str) -> str:
-    """Reads a PDF file and returns the extracted text."""
-    text = ""
-    with pdfplumber.open(file_path) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    return text
+GITHUB_WEB_URL = "https://github.com/fabiopnoronha/credit-fund-bylaws/tree/main/data/raw"
+RAW_BASE_URL = "https://raw.githubusercontent.com/fabiopnoronha/credit-fund-bylaws/main/data/raw"
+OUTPUT_DIR = "data/raw"
 
-def read_docx(file_path: str) -> str:
-    """Reads a DOCX file and returns the extracted text."""
-    text = docx2txt.process(file_path)
-    return text
-
-def load_bylaws(input_dir: str = "data/raw") -> list:
+def fetch_file_list_from_github_web():
     """
-    Loads all bylaw files (PDF or DOCX) from the input directory.
-    Returns a list of tuples: (filename, raw_text).
+    Scrape the GitHub webpage to get a list of filenames.
     """
-    all_documents = []
-    for filename in os.listdir(input_dir):
-        file_path = os.path.join(input_dir, filename)
-        if not os.path.isfile(file_path):
-            continue  # Skip if it's a folder or something else
-        
-        ext = filename.lower().rsplit(".", 1)[-1]
-        
-        if ext == "pdf":
-            doc_text = read_pdf(file_path)
-        elif ext == "docx":
-            doc_text = read_docx(file_path)
-        else:
-            # Skip if it's not PDF or DOCX
-            continue
-        
-        all_documents.append((filename, doc_text))
-    
-    return all_documents
+    response = requests.get(GITHUB_WEB_URL)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    file_links = soup.find_all('a', class_='js-navigation-open Link--primary')
+    return [link.text for link in file_links if link.text.endswith('.pdf') or link.text.endswith('.docx')]
+
+def download_file_from_github(filename):
+    """
+    Download a file from GitHub raw link and save it locally.
+    """
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    file_url = f"{RAW_BASE_URL}/{filename}"
+    response = requests.get(file_url, stream=True)
+    if response.status_code == 200:
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        with open(filepath, "wb") as f:
+            for chunk in response.iter_content(1024):
+                f.write(chunk)
+        print(f"Downloaded: {filename}")
+    else:
+        print(f"Failed to download {filename}. HTTP Status: {response.status_code}")
 
 if __name__ == "__main__":
-    docs = load_bylaws("data/raw")
-    print(f"Loaded {len(docs)} bylaw files.")
- 
+    # Step 1: Scrape the GitHub webpage for file names
+    file_list = fetch_file_list_from_github_web()
+
+    # Step 2: Download each file
+    for file in file_list:
+        download_file_from_github(file)
